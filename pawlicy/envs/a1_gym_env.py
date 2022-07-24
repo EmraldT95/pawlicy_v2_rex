@@ -165,11 +165,11 @@ class A1GymEnv(gym.Env):
         if self._is_render:
             # Sleep, otherwise the computation takes less time than real time,
             # which will make the visualization like a fast-forward video.
-            # time_spent = time.time() - self._last_frame_time
-            # self._last_frame_time = time.time()
-            # time_to_sleep = self._env_time_step - time_spent
-            # if time_to_sleep > 0:
-            #     time.sleep(time_to_sleep)
+            time_spent = time.time() - self._last_frame_time
+            self._last_frame_time = time.time()
+            time_to_sleep = self._env_time_step - time_spent
+            if time_to_sleep > 0:
+                time.sleep(time_to_sleep)
             base_pos = self._robot.GetBasePosition()
 
             # Also keep the previous orientation of the camera set by the user.
@@ -233,26 +233,7 @@ class A1GymEnv(gym.Env):
         self._robot.Terminate()
 
     def _termination(self):
-        fallen = self.is_fallen()
-        if fallen:
-            print("FALLING DOWN!")
-        return fallen or self._task.done(self)
-
-    def is_fallen(self):
-        """Decide whether robot has fallen.
-
-        If the up directions between the base and the world is larger (the dot
-        product is smaller than 0.85) or the base is very low on the ground
-        (the height is smaller than 0.13 meter), robot is considered fallen.
-
-        Returns:
-          Boolean value that indicates whether robot has fallen.
-        """
-        orientation = self._robot.GetBaseOrientation()
-        rot_mat = self._pb_client.getMatrixFromQuaternion(orientation)
-        local_up = rot_mat[6:]
-        return np.dot(np.asarray([0, 0, 1]), np.asarray(local_up)) < 0.85
-
+        return self._task.done(self)
 
     def _generate_terrain(self, randomize=False):
         """Generates terrain randomly (if needed)"""
@@ -291,13 +272,18 @@ class A1GymEnv(gym.Env):
         joint_limits = self._robot.GetJointLimits()
         num_motors = self.robot.num_motors
         upper_bound = np.zeros(len(self._get_observation()))
+        lower_bound = np.zeros(len(self._get_observation()))
 
         upper_bound[0:num_motors] = joint_limits["upper"]  # Joint angle.
+        lower_bound[0:num_motors] = joint_limits["lower"]
         upper_bound[num_motors:2 * num_motors] = joint_limits["velocity"]  # Joint velocity.
+        lower_bound[num_motors:2 * num_motors] = -joint_limits["velocity"]
         upper_bound[2 * num_motors:3 * num_motors] = joint_limits["torque"]  # Joint torque.
+        lower_bound[2 * num_motors:3 * num_motors] = -joint_limits["torque"]
         upper_bound[3 * num_motors:] = 1.0  # Quaternion of base orientation.
+        lower_bound[3 * num_motors:] = -1.0
         
-        observation_space = gym.spaces.Box(-upper_bound, upper_bound, dtype=np.float64)
+        observation_space = gym.spaces.Box(lower_bound, upper_bound, dtype=np.float32)
         return observation_space
 
 
@@ -320,11 +306,11 @@ class A1GymEnv(gym.Env):
         """
 
         observation = []
-        observation.extend(self._robot.GetMotorAngles().tolist())
-        observation.extend(self._robot.GetMotorVelocities().tolist())
-        observation.extend(self._robot.GetMotorTorques().tolist())
-        observation.extend(list(self._robot.GetBaseOrientation()))
-        self._observation = observation
+        observation.extend(self._robot.GetMotorAngles().tolist()) # [0:12]
+        observation.extend(self._robot.GetMotorVelocities().tolist()) # [12:24]
+        observation.extend(self._robot.GetMotorTorques().tolist()) # [24:36]
+        observation.extend(list(self._robot.GetBaseOrientation())) # [36:40]
+        self._observation = np.asarray(observation, dtype=np.float32)
         return self._observation
 
     def _get_true_observation(self):
@@ -333,9 +319,9 @@ class A1GymEnv(gym.Env):
         It includes the angles, velocities, torques and the orientation of the base.
 
         Returns:
-          The observation list. observation[0:8] are motor angles. observation[8:16]
-          are motor velocities, observation[16:24] are motor torques.
-          observation[24:28] is the orientation of the base, in quaternion form.
+          The observation list. observation[0:12] are motor angles. observation[12:24]
+          are motor velocities, observation[24:36] are motor torques.
+          observation[36:40] is the orientation of the base, in quaternion form.
         """
         observation = []
         observation.extend(self._robot.GetTrueMotorAngles().tolist())
@@ -343,7 +329,7 @@ class A1GymEnv(gym.Env):
         observation.extend(self._robot.GetTrueMotorTorques().tolist())
         observation.extend(list(self._robot.GetTrueBaseOrientation()))
 
-        self._true_observation = observation
+        self._true_observation = np.asarray(observation, dtype=np.float32)
         return self._true_observation
 
 

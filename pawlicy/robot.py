@@ -114,16 +114,6 @@ class A1:
         # See Reset for more details.
         self.Reset(reset_time=-1)
 
-    def GetTimeSinceReset(self):
-        return self._step_counter * self.time_step
-
-    def Step(self, action):
-        for _ in range(self._action_repeat):
-            self.ApplyAction(action)
-            self._pb_client.stepSimulation()
-            self.ReceiveObservation()
-            self._step_counter += 1
-
     def Terminate(self):
         pass
 
@@ -204,6 +194,7 @@ class A1:
           motor_kds: Derivative gains for the motor model. If not provided, it
             uses the default kd of the robot for all the motors.
         """
+
         if len(self._joint_max_velocity) > 0:
             current_motor_angle = self.GetTrueMotorAngles()
             max_velocities = np.asarray(self._joint_max_velocity)
@@ -220,6 +211,13 @@ class A1:
         self._last_action = motor_commands_with_direction # might come handy for action interpolation (smoothening the transitions)
         for motor_id, motor_command_with_direction, max_force in zip(self._motor_link_ids, motor_commands_with_direction, self._joint_max_force):
             self._SetDesiredMotorAngleById(motor_id, motor_command_with_direction, max_force)
+
+    def Step(self, action):
+        for _ in range(self._action_repeat):
+            self.ApplyAction(action)
+            self._pb_client.stepSimulation()
+            self.ReceiveObservation()
+            self._step_counter += 1
 
     def ReceiveObservation(self):
         """Receive the observation from sensors.
@@ -247,6 +245,15 @@ class A1:
         """
         position, _ = (self._pb_client.getBasePositionAndOrientation(self._robot_id))
         return position
+
+    def GetBaseVelocity(self):
+        """Get the linear velocity of minitaur's base.
+
+        Returns:
+        The velocity of minitaur's base.
+        """
+        velocity, _ = self._pb_client.getBaseVelocity(self._robot_id)
+        return velocity
 
     def GetTrueBaseRollPitchYaw(self):
         """Get robot's base orientation in euler angle in the world frame.
@@ -383,10 +390,11 @@ class A1:
                                                     targetPosition=desired_angle,
                                                     positionGain=self._kp,
                                                     velocityGain=self._kd,
-                                                    force=max_force)
+                                                    force=max_force if max_force < 25 else 25) # This is from Rex
 
     def GetJointLimits(self):
         """Gets the joint limits (angle, torque and velocity) of the robot"""
+        
         return {
             "lower": np.array(self._joint_lower_limits),
             "upper": np.array(self._joint_upper_limits),
@@ -489,6 +497,9 @@ class A1:
         """
         self.time_step = simulation_step
         self._action_repeat = action_repeat
+    
+    def GetTimeSinceReset(self):
+        return self._step_counter * self.time_step
 
     @property
     def id(self):
