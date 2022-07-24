@@ -47,10 +47,12 @@ class A1GymEnv(gym.Env):
         self._action_repeat = action_repeat
         self._control_latency = control_latency
         self._num_bullet_solver_iterations = int(NUM_SIMULATION_ITERATION_STEPS / self._action_repeat)
-        # self._env_time_step = self._sim_time_step * self._action_repeat
         self._randomise_terrain = randomise_terrain
         self._motor_control_mode = motor_control_mode
         self._log_path = log_path # Set up logging.
+        self._cam_dist = 1.0
+        self._cam_yaw = 0
+        self._cam_pitch = -30
 
         if control_time_step is not None:
             self.control_time_step = control_time_step
@@ -60,7 +62,7 @@ class A1GymEnv(gym.Env):
             # Default values for time step and action repeat
             self._time_step = 0.01
             self._action_repeat = 1
-    
+
         # Configure PyBullet
         if self._is_render:
             self._pb_client = BulletClient(connection_mode=p.GUI)
@@ -108,7 +110,7 @@ class A1GymEnv(gym.Env):
                     pybullet_client=self._pb_client,
                     action_repeat=self._action_repeat,
                     time_step=self._time_step,
-                    control_latency=self._control_latency,
+                    # control_latency=self._control_latency,
                     terrain=terrain_type)
 
             # Create the action space and observation space
@@ -119,9 +121,11 @@ class A1GymEnv(gym.Env):
         self._robot.Reset(hard_reload=False, default_motor_angles=initial_motor_angles, reset_time=reset_duration)
 
         self._env_step_counter = 0
+        self._env_time_step = self._time_step * self._action_repeat
+        self._last_frame_time = 0.0 # The wall-clock time at which the last frame is rendered.
         if self._is_render:
             self._pb_client.configureDebugVisualizer(self._pb_client.COV_ENABLE_RENDERING, 1)
-        self._pb_client.resetDebugVisualizerCamera(1.0, 0, -30, [0, 0, 0])
+        self._pb_client.resetDebugVisualizerCamera(self._cam_dist, self._cam_yaw, self._cam_pitch, [0, 0, 0])
         self._last_action = np.zeros(self.action_space.shape)
         self._last_base_position = self._robot.InitBasePosition
         self._last_base_orientation = self._robot.InitBaseOrientation
@@ -187,16 +191,30 @@ class A1GymEnv(gym.Env):
         Currently tuned to get the view from the head of the robot
         """
         # Base information
-        proj_matrix = self._pb_client.computeProjectionMatrixFOV(fov=66, aspect=1, nearVal=0.01, farVal=100)
-        base_pos = list(self._robot.GetBasePosition())
-        base_ori = list(self._robot.GetTrueBaseOrientation())
-        base_pos[2] = base_pos[2]+0.1
+        # proj_matrix = self._pb_client.computeProjectionMatrixFOV(fov=66, aspect=1, nearVal=0.01, farVal=100)
+        # base_pos = list(self._robot.GetBasePosition())
+        # base_ori = list(self._robot.GetTrueBaseOrientation())
+        # base_pos[2] = base_pos[2]+0.1
 
-        # Rotate camera direction
-        rot_mat = np.array(self._pb_client.getMatrixFromQuaternion(base_ori)).reshape(3, 3)
-        camera_vec = np.matmul(rot_mat, [1, 0, 0]) # Target position is always the x-axis. This decides the diirection of the camera
-        up_vec = np.matmul(rot_mat, np.array([0, 0, 1])) # Which direction is considered "up"
-        view_matrix = self._pb_client.computeViewMatrix(base_pos, base_pos + camera_vec, up_vec)
+        # # Rotate camera direction
+        # rot_mat = np.array(self._pb_client.getMatrixFromQuaternion(base_ori)).reshape(3, 3)
+        # camera_vec = np.matmul(rot_mat, [1, 0, 0]) # Target position is always the x-axis. This decides the diirection of the camera
+        # up_vec = np.matmul(rot_mat, np.array([0, 0, 1])) # Which direction is considered "up"
+        # view_matrix = self._pb_client.computeViewMatrix(base_pos, base_pos + camera_vec, up_vec)
+
+        base_pos = self._robot.GetBasePosition()
+        view_matrix = self._pb_client.computeViewMatrixFromYawPitchRoll(
+            cameraTargetPosition=base_pos,
+            distance=self._cam_dist,
+            yaw=self._cam_yaw,
+            pitch=self._cam_pitch,
+            roll=0,
+            upAxisIndex=2)
+        proj_matrix = self._pb_client.computeProjectionMatrixFOV(
+            fov=60,
+            aspect=float(RENDER_WIDTH) / RENDER_HEIGHT,
+            nearVal=0.1,
+            farVal=100.0)
 
         (_, _, px, _, _) = self._pb_client.getCameraImage(
             width=RENDER_WIDTH,

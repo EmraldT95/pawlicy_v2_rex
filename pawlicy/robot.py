@@ -9,10 +9,10 @@ from pawlicy.envs import TerrainConstants
 # Some constants specific to the URDF file
 LINK_NAME_ID_DICT = {
     "trunk" : -1,  "imu_link" : 0,
-    "FR_hip" : 1, "FR_upper_shoulder" : 2, "FR_upper" : 3, "FR_lower" : 4, "FR_toe" : 5,
-    "FL_hip" : 6, "FL_upper_shoulder" : 7, "FL_upper" : 8, "FL_lower" : 9, "FL_toe" : 10,
-    "RR_hip" : 11, "RR_upper_shoulder" : 12, "RR_upper" : 13, "RR_lower" : 14, "RR_toe" : 15,
-    "RL_hip" : 16, "RL_upper_shoulder" : 17, "RL_upper" : 18, "RL_lower" : 19, "RL_toe" : 20,
+    "FR_hip_joint" : 1, "FR_upper_shoulder" : 2, "FR_upper_joint" : 3, "FR_lower_joint" : 4, "FR_toe" : 5,
+    "FL_hip_joint" : 6, "FL_upper_shoulder" : 7, "FL_upper_joint" : 8, "FL_lower_joint" : 9, "FL_toe" : 10,
+    "RR_hip_joint" : 11, "RR_upper_shoulder" : 12, "RR_upper_joint" : 13, "RR_lower_joint" : 14, "RR_toe" : 15,
+    "RL_hip_joint" : 16, "RL_upper_shoulder" : 17, "RL_upper_joint" : 18, "RL_lower_joint" : 19, "RL_toe" : 20,
 }
 JOINT_NAMES = [
     "FR_hip_joint", "FR_upper_joint", "FR_lower_joint",
