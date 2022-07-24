@@ -1,62 +1,96 @@
+import os
+import inspect
+import argparse
+
 from pawlicy.envs import A1GymEnv
-from pawlicy.robot import A1
+from pawlicy.learning import Trainer
+from pawlicy.tasks import WalkAlongX
 
-import pybullet as p
-import pybullet_data as pbd
-from pybullet_utils.bullet_client import BulletClient
-
-# Some constants specific to the URDF file
-LINK_NAME_ID_DICT = {
-    "trunk" : -1,  "imu_link" : 0,
-    "FR_hip_joint" : 1, "FR_upper_shoulder" : 2, "FR_upper_joint" : 3, "FR_lower_joint" : 4, "FR_toe" : 5,
-    "FL_hip_joint" : 6, "FL_upper_shoulder" : 7, "FL_upper_joint" : 8, "FL_lower_joint" : 9, "FL_toe" : 10,
-    "RR_hip_joint" : 11, "RR_upper_shoulder" : 12, "RR_upper_joint" : 13, "RR_lower_joint" : 14, "RR_toe" : 15,
-    "RL_hip_joint" : 16, "RL_upper_shoulder" : 17, "RL_upper_joint" : 18, "RL_lower_joint" : 19, "RL_toe" : 20,
-}
-RANDOM_INIT_ANGLES = [
-    -0.09224178, 3.6216, -2.6537266,0.27989328, 0.5252582, -2.202277, 0.52137035, 1.3827422, -1.7126653, 0.35403055, 1.9539814, -0.92294806]
-JOINT_NAMES = [
-    "FR_hip_joint", "FR_upper_joint", "FR_lower_joint",
-    "FL_hip_joint", "FL_upper_joint", "FL_lower_joint",
-    "RR_hip_joint", "RR_upper_joint", "RR_lower_joint",
-    "RL_hip_joint", "RL_upper_joint", "RL_lower_joint",
-]
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+SAVE_DIR = os.path.join(currentdir, "agents")
 
 def main():
-    env = A1GymEnv(motor_control_mode="Position",
-                    enable_rendering=True)
+    # Getting all the arguments passed
+    arg_parser = argparse.ArgumentParser()
+    arg_parser.add_argument(
+        '--mode', "-m",
+        dest="mode",
+        default="test",
+        choices=["train", "test"],
+        type=str,
+        help='to set to training or testing mode')
+    arg_parser.add_argument(
+        "--motor_control_mode", "-mcm",
+        dest="motor_control_mode",
+        default="Position",
+        choices=["Position", "Torque", "Velocity"],
+        type=str,
+        help="to set motor control mode")
+    arg_parser.add_argument(
+        '--visualize', "-v",
+        dest="visualize",
+        action="store_true",
+        help='To flip rendering behaviour')
+    arg_parser.add_argument(
+        "--randomise_terrain", "-rt",
+        dest="randomise_terrain",
+        default=False, type=bool,
+        help="to setup a randommized terrain")
+    arg_parser.add_argument(
+        '--total_timesteps', "-tts",
+        dest="total_timesteps",
+        default=int(1e6),
+        type=int,
+        help='total number of training steps')
+    arg_parser.add_argument(
+        '--algorithm', "-a",
+        dest="algorithm",
+        default="SAC",
+        choices=["SAC", "PPO", "TD3"],
+        type=str,
+        help='the algorithm used to train the robot')
+    args = arg_parser.parse_args()
 
-    # pb_client = BulletClient(connection_mode=p.GUI)
-    # pb_client.setAdditionalSearchPath(pbd.getDataPath())
-    # pb_client.setTimeStep(1/240)
-    # pb_client.setGravity(0, 0, -9.8)
+    # Training
+    if args.mode == "train":
+        
+        task = WalkAlongX()
 
-    # ground = pb_client.loadURDF("plane.urdf", [0, 0, 0])
+        env = A1GymEnv(randomise_terrain=args.randomise_terrain,
+                    motor_control_mode=args.motor_control_mode,
+                    enable_rendering=args.visualize,
+                    task=task)
 
-    # robot = pb_client.loadURDF("a1/a1.urdf", [0, 0, 0.32], [0, 0, 0, 1])
+        # Need to do this because our current pybullet setup can have only one client with GUI enabled
+        if args.visualize:
+            eval_env = None
+        else:
+            eval_env = A1GymEnv(randomise_terrain=args.randomise_terrain,
+                        motor_control_mode=args.motor_control_mode,
+                        enable_rendering=args.visualize)
 
-    for _ in range(500):
-        try:
-            # for idx, name in enumerate(JOINT_NAMES):
-            #     pb_client.setJointMotorControl2(bodyIndex=robot,
-            #                                             jointIndex=LINK_NAME_ID_DICT[name],
-            #                                             controlMode=pb_client.POSITION_CONTROL,
-            #                                             targetPosition=RANDOM_INIT_ANGLES[idx],
-            #                                             # positionGain=self._kp,
-            #                                             # velocityGain=self._kd,
-            #                                             force=3.5)
-            # pb_client.stepSimulation()
+        # Get the trainer
+        local_trainer = Trainer(env, eval_env, args.algorithm, max_episode_steps=500)
 
-            env.render()
-            action = env.action_space.sample()
-            print(action)
-            obs, reward, done, info = env.step(action)
-            if done:
-                env.reset()
-            print(reward)
-        except ValueError:
-            # pb_client.disconnect()
-            env.close()
+        # The hyperparameters to override/add for the specific algorithm
+        # (Check 'learning/hyperparams.yml' for default values)
+        override_hyperparams = {
+            "n_timesteps": args.total_timesteps,
+            "learning_starts": 1000,
+        }
+
+        # Train the agent
+        _ = local_trainer.train(override_hyperparams)
+
+        # Save the model after training
+        local_trainer.save_model()
+
+    # Testing
+    else:
+        test_env = A1GymEnv(randomise_terrain=args.randomise_terrain,
+                    motor_control_mode=args.motor_control_mode,
+                    enable_rendering=True)        
+        Trainer(test_env, algorithm=args.algorithm).test(os.path.join(SAVE_DIR, args.algorithm))
 
 if __name__ == "__main__":
     main()

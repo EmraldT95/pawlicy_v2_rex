@@ -15,7 +15,7 @@ class TerrainConstants:
     }
     ROBOT_INIT_POSITION = {
         'mounts': [0, 0, 0.32],
-        'plane': [0, 0, 0.32],
+        'plane': [0, 0, 0.30],
         # 'hills': [0, 0, 1.98],
         'maze': [0, 0, 0.32],
         'random': [0, 0, 0.42]
