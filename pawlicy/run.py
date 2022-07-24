@@ -76,7 +76,7 @@ def main():
         # (Check 'learning/hyperparams.yml' for default values)
         override_hyperparams = {
             "n_timesteps": args.total_timesteps,
-            "learning_starts": 1000,
+            # "learning_starts": 1000,
         }
 
         # Train the agent
