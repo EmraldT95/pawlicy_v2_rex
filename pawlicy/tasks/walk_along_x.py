@@ -15,7 +15,7 @@ class WalkAlongX(object):
                 roll_threshold: float = np.pi * 1/2,
                 pitch_threshold: float = 0.8,
                 enable_z_limit: bool = True,
-                healthy_z_limit: float = 0.05,
+                healthy_z_limit: float = 0.1,
                 healthy_reward=1.0,
                 ):
         """Initializes the task."""
@@ -116,10 +116,10 @@ class WalkAlongX(object):
     def is_healthy(self, env):
         # Checking if robot is in contact with the ground
         foot_links = env.robot.GetFootLinkIDs()
-        ground = env.world_dict["terrain_id"]
+        ground = env.world_dict["ground_id"]
         # Skip the first env step
         if env.env_step_counter > 0:
-            robot_ground_contacts = env.pybullet_client.getContactPoints(bodyA=env.robot.quadruped, bodyB=ground)
+            robot_ground_contacts = env.pybullet_client.getContactPoints(bodyA=env.robot.id, bodyB=ground)
             for contact in robot_ground_contacts:
                 # Only the toes of the robot should in contact with the ground
                 if contact[3] not in foot_links:
@@ -129,8 +129,8 @@ class WalkAlongX(object):
             # The robot shouldn't be flipped, so limit the Roll and Pitch
             if self._current_base_ori_euler[0] > self.roll_threshold or self._current_base_ori_euler[0] < -self.roll_threshold:
                 return False
-            # if self._current_base_ori_euler[1] > self.pitch_threshold or self._current_base_ori_euler[1] < -self.pitch_threshold:
-            #     return False
+            if self._current_base_ori_euler[1] > self.pitch_threshold or self._current_base_ori_euler[1] < -self.pitch_threshold:
+                return False
 
             # Isuue - needs to account for heightfield data
             if self.enable_z_limit and self._current_base_pos[2] < self.healthy_z_limit:

@@ -498,6 +498,10 @@ class A1:
         self.time_step = simulation_step
         self._action_repeat = action_repeat
     
+    def GetFootLinkIDs(self):
+        """Get list of IDs for all foot links."""
+        return self._foot_link_ids
+
     def GetTimeSinceReset(self):
         return self._step_counter * self.time_step
 
