@@ -51,11 +51,10 @@ def main():
         help='the algorithm used to train the robot')
     args = arg_parser.parse_args()
 
+    task = WalkAlongX()
+
     # Training
     if args.mode == "train":
-        
-        task = WalkAlongX()
-
         env = A1GymEnv(randomise_terrain=args.randomise_terrain,
                     motor_control_mode=args.motor_control_mode,
                     enable_rendering=args.visualize,
@@ -67,7 +66,8 @@ def main():
         else:
             eval_env = A1GymEnv(randomise_terrain=args.randomise_terrain,
                         motor_control_mode=args.motor_control_mode,
-                        enable_rendering=args.visualize)
+                        enable_rendering=args.visualize,
+                        task=task)
 
         # Get the trainer
         local_trainer = Trainer(env, eval_env, args.algorithm, max_episode_steps=500)
@@ -76,7 +76,6 @@ def main():
         # (Check 'learning/hyperparams.yml' for default values)
         override_hyperparams = {
             "n_timesteps": args.total_timesteps,
-            # "learning_starts": 1000,
         }
 
         # Train the agent
@@ -89,8 +88,13 @@ def main():
     else:
         test_env = A1GymEnv(randomise_terrain=args.randomise_terrain,
                     motor_control_mode=args.motor_control_mode,
-                    enable_rendering=True)        
-        Trainer(test_env, algorithm=args.algorithm).test(os.path.join(SAVE_DIR, args.algorithm))
+                    enable_rendering=True,
+                    task=task)        
+        Trainer(test_env,
+                algorithm=args.algorithm,
+                max_episode_steps=100000
+                ).test(os.path.join(SAVE_DIR,
+                                    args.algorithm))
 
 if __name__ == "__main__":
     main()
