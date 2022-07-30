@@ -9,7 +9,7 @@ from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.noise import NormalActionNoise
-from stable_baselines3.common.callbacks import EvalCallback, CallbackList
+from stable_baselines3.common.callbacks import CallbackList
 
 from pawlicy.envs.wrappers import NormalizeActionWrapper
 from pawlicy.learning import utils
@@ -89,12 +89,15 @@ class Trainer:
 
         # Train the model (check if evaluation is needed)
         if self._eval_env is not None:
-            eval_callback = EvalCallback(self._eval_env,
+            eval_callback = utils.Eval_Callback(eval_env=self._eval_env,
                                         best_model_save_path=eval_dir,
                                         log_path=eval_dir,
                                         eval_freq=eval_frequency,
                                         deterministic=True,
-                                        render=False)
+                                        render=False,
+                                        verbose=1)
+                                        # This is needed to generate the video after evaluation is complete
+                                        # callback_after_eval=utils.After_Eval_Callback(1, eval_dir))
 
             callbacks = CallbackList([eval_callback, utils.TensorboardCallback()])
 
