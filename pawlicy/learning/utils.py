@@ -235,6 +235,7 @@ class Eval_Callback(EvalCallback):
             # The variance of should not exceed one-fifth of the mean
             if std_reward > 0:
                 inv_cov = mean_reward / std_reward
+                print(f"Inverse coefficient of variation: {inv_cov:.2f}")
                 if inv_cov > self.best_inv_cov_reward and mean_reward > self.best_mean_reward: #and var_reward <= mean_reward * self._var_threshold:
                     if self.verbose > 0:
                         print("New best reward!")
