@@ -124,7 +124,6 @@ class Eval_Callback(EvalCallback):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.best_inv_cov_reward = 0.0
         self._var_threshold = 1/5 # The max allowed deviation from the mean
         # The video saving part
         if "callback_after_eval" in kwargs.keys():
@@ -234,14 +233,13 @@ class Eval_Callback(EvalCallback):
 
             # The variance of should not exceed one-fifth of the mean
             if std_reward > 0:
-                inv_cov = mean_reward / std_reward
+                inv_cov = mean_reward / std_reward # Sharper peak
                 print(f"Inverse coefficient of variation: {inv_cov:.2f}")
-                if inv_cov > self.best_inv_cov_reward and mean_reward > self.best_mean_reward: #and var_reward <= mean_reward * self._var_threshold:
+                if inv_cov > 9 and mean_reward > self.best_mean_reward: #and var_reward <= mean_reward * self._var_threshold:
                     if self.verbose > 0:
                         print("New best reward!")
                     if self.best_model_save_path is not None:
                         self.model.save(os.path.join(self.best_model_save_path, "best_model"))
-                    self.best_inv_cov_reward = inv_cov
                     self.best_mean_reward = mean_reward
                     # Trigger callback on new best model, if needed
                     if self.callback_on_new_best is not None:

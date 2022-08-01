@@ -46,12 +46,24 @@ def main():
         '--algorithm', "-a",
         dest="algorithm",
         default="SAC",
-        choices=["SAC", "PPO", "TD3"],
+        choices=["SAC", "PPO", "TD3", "DDPG"],
         type=str,
         help='the algorithm used to train the robot')
+    arg_parser.add_argument(
+        '--path', "-p",
+        dest="path",
+        default='',
+        type=str,
+        help='the path to the saved model')
     args = arg_parser.parse_args()
 
     task = WalkAlongX()
+
+    # Setting the save path
+    if args.path != '':
+        path = os.path.join(currentdir, args.path)
+    else:
+        path = os.path.join(SAVE_DIR, args.algorithm)
 
     # Training
     if args.mode == "train":
@@ -70,7 +82,7 @@ def main():
                         task=task)
 
         # Get the trainer
-        local_trainer = Trainer(env, eval_env, args.algorithm, max_episode_steps=500)
+        local_trainer = Trainer(env, eval_env, args.algorithm, 500, path)
 
         # The hyperparameters to override/add for the specific algorithm
         # (Check 'learning/hyperparams.yml' for default values)
@@ -90,11 +102,7 @@ def main():
                     motor_control_mode=args.motor_control_mode,
                     enable_rendering=True,
                     task=task)        
-        Trainer(test_env,
-                algorithm=args.algorithm,
-                max_episode_steps=100000
-                ).test(os.path.join(SAVE_DIR,
-                                    args.algorithm))
+        Trainer(test_env, algorithm=args.algorithm, max_episode_steps=10000, save_path=path).test()
 
 if __name__ == "__main__":
     main()

@@ -4,7 +4,7 @@ from xml.dom import NotFoundErr
 
 import numpy as np
 from gym.wrappers import TimeLimit
-from stable_baselines3 import SAC, PPO, TD3
+from stable_baselines3 import SAC, PPO, TD3, DDPG
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
@@ -17,7 +17,7 @@ from pawlicy.learning import utils
 currentdir = os.path.dirname(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
 SAVE_DIR = os.path.join(currentdir, "agents")
 
-ALGORITHMS = {"SAC": SAC, "PPO": PPO, "TD3": TD3}
+ALGORITHMS = {"SAC": SAC, "PPO": PPO, "TD3": TD3, "DDPG": DDPG}
 
 class Trainer:
     """
@@ -167,13 +167,6 @@ class Trainer:
         Args:
             model_path: path to the directory containing the model/replay_buffer
         """
-        # If no explicit path is mentioned, we create one based the algorithm used to train
-        if load_path is None:
-            if self._save_path is not None:
-                load_path = self._save_path
-            else:
-                raise ValueError("A path must be provided to load the model.")
-
         # Load the best eval model, if the file exists
         model_path = os.path.join(load_path, "eval/best_model.zip")
         if os.path.exists(model_path):
@@ -195,14 +188,25 @@ class Trainer:
         Args:
             model_path: The path to the directory containing the model file
         """
-        self._model = self.load_model(model_path)
+        # If no explicit path is mentioned, we create one based the algorithm used to train
+        if model_path is not None:
+            self._model = self.load_model(model_path)
+        elif self._save_path is not None:
+            self._model = self.load_model(self._save_path)
+        else:
+            raise ValueError("A path must be provided to load the model.")
 
         obs = self._env.reset()
+        rewards = []
+        ep_reward = 0
         for _ in range(5000):
             action, _states = self._model.predict(obs, deterministic=True)
             obs, reward, done, info = self._env.step(action)
+            ep_reward += reward
             if done:
+                rewards.append(ep_reward)
                 obs = self._env.reset()
+        print("Mean reward: ", np.mean(np.array(rewards)))
 
     def setup_env(self, env, max_episode_steps):
         """Modifies the environment to suit to the needs of stable_baselines3.
