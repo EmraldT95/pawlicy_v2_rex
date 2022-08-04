@@ -34,3 +34,10 @@ TD3:
   learning_rate: !!float 1e-3
   train_freq: 1
   gradient_steps: 1
+
+DDPG:
+  n_timesteps: !!float 1e6
+  policy: 'MlpPolicy'
+  noise_type: 'normal'
+  noise_std: 0.1
+  learning_rate: !!float 1e-3

@@ -4,11 +4,12 @@ from xml.dom import NotFoundErr
 
 import numpy as np
 from gym.wrappers import TimeLimit
-from stable_baselines3 import SAC, PPO, TD3
+from stable_baselines3 import SAC, PPO, TD3, DDPG
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.noise import NormalActionNoise
+from stable_baselines3.common.callbacks import CallbackList
 
 from pawlicy.envs.wrappers import NormalizeActionWrapper
 from pawlicy.learning import utils
@@ -16,7 +17,7 @@ from pawlicy.learning import utils
 currentdir = os.path.dirname(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
 SAVE_DIR = os.path.join(currentdir, "agents")
 
-ALGORITHMS = {"SAC": SAC, "PPO": PPO, "TD3": TD3}
+ALGORITHMS = {"SAC": SAC, "PPO": PPO, "TD3": TD3, "DDPG": DDPG}
 
 class Trainer:
     """
@@ -62,10 +63,12 @@ class Trainer:
         noise_std = hyperparameters.pop("noise_std", 0.0)
 
         # The noise objects for TD3
-        if self._algorithm == "TD3":
+        if self._algorithm == "TD3" or self._algorithm == "DDPG":
             policy_kwargs = dict(net_arch=[400, 300])
             if noise_type == "normal":
                 action_noise = NormalActionNoise(mean=np.zeros(12), sigma=noise_std * np.ones(12))
+            # Add these to the hyperparameters
+            hyperparameters.update({"action_noise": action_noise, "policy_kwargs": policy_kwargs})
 
         # Setup up learning rate scheduler arguments, if needed
         if scheduler_type is not None:
@@ -75,28 +78,36 @@ class Trainer:
             }
 
         # Create all the needed directories
-        log_dir = self._create_directories(self._save_path)
+        log_dir, eval_dir = self._create_directories(self._save_path)
 
         # Use the appropriate algorithm
         self._model = ALGORITHMS[self._algorithm](env=self._env,
                                                     verbose=1,
-                                                    action_noise=action_noise if self._algorithm == "TD3" else None,
                                                     learning_rate=utils.lr_schedule(lr, **lr_scheduler_args) if scheduler_type is not None else lr,
                                                     tensorboard_log=log_dir,
-                                                    **hyperparameters,
-                                                    policy_kwargs=policy_kwargs if self._algorithm == "TD3" else None)
+                                                    **hyperparameters)
 
         # Train the model (check if evaluation is needed)
         if self._eval_env is not None:
+            eval_callback = utils.Eval_Callback(eval_env=self._eval_env,
+                                        best_model_save_path=eval_dir,
+                                        log_path=eval_dir,
+                                        eval_freq=eval_frequency,
+                                        deterministic=True,
+                                        render=False,
+                                        verbose=1)
+                                        # This is needed to generate the video after evaluation is complete
+                                        # callback_after_eval=utils.After_Eval_Callback(1, eval_dir))
+
+            callbacks = CallbackList([eval_callback, utils.TensorboardCallback()])
+
             self._model.learn(n_timesteps,
-                                log_interval=100,
-                                eval_env=self._eval_env,
-                                eval_freq=eval_frequency,
+                                log_interval=1000,
                                 reset_num_timesteps=False,
-                                callback=utils.TensorboardCallback())
+                                callback=callbacks)
         else:
             self._model.learn(n_timesteps,
-                                log_interval=100,
+                                log_interval=1000,
                                 reset_num_timesteps=False,
                                 callback=utils.TensorboardCallback())
 
@@ -120,10 +131,13 @@ class Trainer:
         os.makedirs(self._save_path, exist_ok=True)
 
         # Where to store the tensorboard logs
-        log_dir = os.path.join(SAVE_DIR, "tensorboard_logs")
+        log_dir = os.path.join(self._save_path, "tensorboard_logs")
         os.makedirs(log_dir, exist_ok=True)
+        eval_dir = os.path.join(self._save_path, "eval")
+        if self._eval_env:
+            os.makedirs(eval_dir, exist_ok=True)
 
-        return log_dir
+        return log_dir, eval_dir
 
     def save_model(self, save_path=None, save_replay_buffer=False):
         """Saves the trained model. Also saves the replay buffer
@@ -139,10 +153,10 @@ class Trainer:
             os.makedirs(save_path, exist_ok=True)
 
         # Save the model
-        self._model.save(save_path)
+        self._model.save(os.path.join(save_path, self._algorithm))
         # Save the replay buffer, only if needed
         if save_replay_buffer:
-            self._model.save_replay_buffer(f"{save_path}_replay_buffer")
+            self._model.save_replay_buffer(os.path.join(save_path, f"{self._algorithm}_replay_buffer"))
 
         print(f"Model saved in path: {save_path}")
 
@@ -153,23 +167,16 @@ class Trainer:
         Args:
             model_path: path to the directory containing the model/replay_buffer
         """
-        # If no explicit path is mentioned, we create one based the algorithm used to train
-        if load_path is None:
-            if self._save_path is not None:
-                load_path = self._save_path
-            else:
-                raise ValueError("A path must be provided to load the model.")
-
-        # Load the model, if the file exists
-        model_path = f"{load_path}.zip"
-        if os.path.exists(f"{load_path}.zip"):
+        # Load the best eval model, if the file exists
+        model_path = os.path.join(load_path, "eval/best_model.zip")
+        if os.path.exists(model_path):
             model = ALGORITHMS[self._algorithm].load(model_path)
         else:
             raise NotFoundErr(
-                "The model could not be found in the given directory. Please ensure the file is name as 'model.zip'.")
+                "The model could not be found in the given directory. Please ensure the file is name as 'best_model.zip'.")
 
         # Load the replay buffer, if the file exists
-        replay_buffer_path = f"{load_path}_replay_buffer.pkl"
+        replay_buffer_path = os.path.join(load_path, f"{self._algorithm}_replay_buffer.pkl")
         if os.path.exists(replay_buffer_path):
             model.load_replay_buffer(replay_buffer_path)
         
@@ -181,14 +188,25 @@ class Trainer:
         Args:
             model_path: The path to the directory containing the model file
         """
-        self._model = self.load_model(model_path)
+        # If no explicit path is mentioned, we create one based the algorithm used to train
+        if model_path is not None:
+            self._model = self.load_model(model_path)
+        elif self._save_path is not None:
+            self._model = self.load_model(self._save_path)
+        else:
+            raise ValueError("A path must be provided to load the model.")
 
         obs = self._env.reset()
-        for _ in range(500):
+        rewards = []
+        ep_reward = 0
+        for _ in range(5000):
             action, _states = self._model.predict(obs, deterministic=True)
             obs, reward, done, info = self._env.step(action)
+            ep_reward += reward
             if done:
+                rewards.append(ep_reward)
                 obs = self._env.reset()
+        print("Mean reward: ", np.mean(np.array(rewards)))
 
     def setup_env(self, env, max_episode_steps):
         """Modifies the environment to suit to the needs of stable_baselines3.
