@@ -73,12 +73,9 @@ def main():
                     task=task)
 
         # Need to do this because our current pybullet setup can have only one client with GUI enabled
-        if args.visualize:
-            eval_env = None
-        else:
-            eval_env = A1GymEnv(randomise_terrain=args.randomise_terrain,
+        eval_env = A1GymEnv(randomise_terrain=args.randomise_terrain,
                         motor_control_mode=args.motor_control_mode,
-                        enable_rendering=args.visualize,
+                        enable_rendering=False,
                         task=task)
 
         # Get the trainer
@@ -88,6 +85,7 @@ def main():
         # (Check 'learning/hyperparams.yml' for default values)
         override_hyperparams = {
             "n_timesteps": args.total_timesteps,
+            "learning_rate_scheduler": "linear"
         }
 
         # Train the agent

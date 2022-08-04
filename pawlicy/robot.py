@@ -5,6 +5,7 @@ import copy
 import numpy as np
 
 from pawlicy.envs import TerrainConstants
+from pawlicy.action_filter import ActionFilterButter
 
 # Some constants specific to the URDF file
 LINK_NAME_ID_DICT = {
@@ -34,6 +35,7 @@ TOE_NAME_PATTERN = re.compile(r"\w+_toe\d*")
 IMU_NAME_PATTERN = re.compile(r"imu\d*")
 MOTOR_NAME_PATTERN = re.compile(r"^(?!imu).*_joint")
 SENSOR_NOISE_STDDEV = (0.0, 0.0, 0.0, 0.0, 0.0)
+MAX_MOTOR_ANGLE_CHANGE_PER_STEP = 0.2
 
 def MapToMinusPiToPi(angles):
     """Maps a list of angles to [-pi, pi].
@@ -110,6 +112,7 @@ class A1:
         self.time_step = time_step
         self._step_counter = 0
 
+        self._action_filter = self._BuildActionFilter()
         # reset_time=-1.0 means skipping the reset motion.
         # See Reset for more details.
         self.Reset(reset_time=-1)
@@ -149,27 +152,14 @@ class A1:
                 self.ApplyAction(pose)
                 self._pb_client.stepSimulation()
                 self.ReceiveObservation()
-            if default_motor_angles is not None:
-                num_steps_to_reset = int(reset_time / self.time_step)
-                for _ in range(num_steps_to_reset):
-                    self.ApplyAction(default_motor_angles)
-                    self._pb_client.stepSimulation()
-                    self.ReceiveObservation()
+                    
+        self._ResetActionFilter()
         self.ReceiveObservation()
 
     def ResetPose(self):
         """
         Resets the pose of the robot to its initial pose
         """
-        # for name in self._joint_name_to_id:
-        #     joint_id = self._joint_name_to_id[name]
-        #     # Setting force to 0 disables the default torque applied to the motors in pybullet
-        #     self._pb_client.setJointMotorControl2(
-        #         bodyIndex=self._robot_id,
-        #         jointIndex=joint_id,
-        #         controlMode=self._pb_client.VELOCITY_CONTROL,
-        #         targetVelocity=0,
-        #         force=0)
 
         # Set the angle(in radians) for each joint
         for name, i in zip(JOINT_NAMES, range(len(JOINT_NAMES))):
@@ -178,7 +168,27 @@ class A1:
                                                   INIT_MOTOR_ANGLES[i],
                                                   targetVelocity=0)
 
-    def ApplyAction(self, motor_commands, motor_kps=None, motor_kds=None):
+    def _BuildActionFilter(self):
+        sampling_rate = 1 / (self.time_step * self._action_repeat)
+        a_filter = ActionFilterButter(sampling_rate=sampling_rate,
+                                                    num_joints=self.num_motors)
+        return a_filter
+
+    def _ResetActionFilter(self):
+        self._action_filter.reset()
+
+    def _FilterAction(self, action):
+        # initialize the filter history, since resetting the filter will fill
+        # the history with zeros and this can cause sudden movements at the start
+        # of each episode
+        if self._step_counter == 0:
+            default_action = self.GetMotorAngles()
+            self._action_filter.init_history(default_action)
+
+        filtered_action = self._action_filter.filter(action)
+        return filtered_action
+
+    def ApplyAction(self, motor_commands, idx=0):
         """Set the desired motor angles to the motors of the robot.
 
         The desired motor angles are clipped based on the maximum allowed velocity.
@@ -201,11 +211,14 @@ class A1:
             motor_commands_max = (current_motor_angle + self.time_step * max_velocities)
             motor_commands_min = (current_motor_angle - self.time_step * max_velocities)
             motor_commands = np.clip(motor_commands, motor_commands_min, motor_commands_max)
-        # Set the kp and kd for all the motors if not provided as an argument.
-        if motor_kps is None:
-            motor_kps = np.full(self.num_motors, self._kp)
-        if motor_kds is None:
-            motor_kds = np.full(self.num_motors, self._kd)
+        
+        # interpolates between the current and previous actions
+        if self._last_action is not None:
+            lerp = float(idx + 1) / self._action_repeat
+            motor_commands = self._last_action + lerp * (motor_commands - self._last_action)
+
+        # # Clipping motor commands to be clipped off based on the current motor angles
+        # motor_commands = self._ClipMotorCommands(motor_commands)
 
         motor_commands_with_direction = np.multiply(motor_commands, self._motor_direction)
         self._last_action = motor_commands_with_direction # might come handy for action interpolation (smoothening the transitions)
@@ -213,8 +226,10 @@ class A1:
             self._SetDesiredMotorAngleById(motor_id, motor_command_with_direction, max_force)
 
     def Step(self, action):
-        for _ in range(self._action_repeat):
-            self.ApplyAction(action)
+        # A lowpass filter should be used to smooth actions.
+        action = self._FilterAction(action)
+        for i in range(self._action_repeat):
+            self.ApplyAction(action, i)
             self._pb_client.stepSimulation()
             self.ReceiveObservation()
             self._step_counter += 1
@@ -227,6 +242,15 @@ class A1:
         """
         self._observation_history.appendleft(self.GetTrueObservation())
         self._control_observation = self._GetControlObservation()
+
+    def GetObservation(self):
+        observation = []
+        observation.extend(self.GetMotorAngles()) # [0:12]
+        observation.extend(self.GetMotorVelocities()) # [12:24]
+        observation.extend(self.GetMotorTorques()) # [24:36]
+        observation.extend(self.GetBaseRollPitchYaw()) # [36:39]
+        observation.extend(self.GetBaseRollPitchYawRate()) # [39:42]
+        return observation
 
     def GetTrueObservation(self):
         observation = []
@@ -390,16 +414,16 @@ class A1:
                                                     targetPosition=desired_angle,
                                                     positionGain=self._kp,
                                                     velocityGain=self._kd,
-                                                    force=max_force if max_force < 25 else 25) # This is from Rex
+                                                    force=max_force)
 
     def GetJointLimits(self):
         """Gets the joint limits (angle, torque and velocity) of the robot"""
         
         return {
-            "lower": np.array(self._joint_lower_limits),
-            "upper": np.array(self._joint_upper_limits),
-            "torque": np.array(self._joint_max_force),
-            "velocity": np.array(self._joint_max_velocity)
+            "lower": np.array(self._joint_lower_limits, dtype=np.float32),
+            "upper": np.array(self._joint_upper_limits, dtype=np.float32),
+            "torque": np.array(self._joint_max_force, dtype=np.float32),
+            "velocity": np.array(self._joint_max_velocity, dtype=np.float32)
         }
 
     def SetDesiredMotorAngleByName(self, motor_name, desired_angle):
@@ -481,6 +505,25 @@ class A1:
         observation = sensor_values + np.random.normal(scale=noise_stdev, size=sensor_values.shape)
         return observation
 
+    def _ClipMotorCommands(self, motor_commands):
+        """Clips motor commands.
+
+        Args:
+        motor_commands: np.array. Can be motor angles, torques, hybrid commands,
+            or motor pwms (for Minitaur only).
+
+        Returns:
+        Clipped motor commands.
+        """
+
+        # clamp the motor command by the joint limit, in case weired things happens
+        max_angle_change = MAX_MOTOR_ANGLE_CHANGE_PER_STEP
+        current_motor_angles = self.GetMotorAngles()
+        motor_commands = np.clip(motor_commands,
+                                current_motor_angles - max_angle_change,
+                                current_motor_angles + max_angle_change)
+        return motor_commands
+
     def _RemoveDefaultJointDamping(self):
         """Removes the damping on allthe joints"""
         for i in range(self._num_joints):
@@ -516,3 +559,7 @@ class A1:
     @property
     def InitBaseOrientation(self):
         return self._init_base_orientation
+
+    @property
+    def last_action(self):
+        return self._last_action

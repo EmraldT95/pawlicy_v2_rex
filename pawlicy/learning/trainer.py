@@ -63,7 +63,7 @@ class Trainer:
         noise_std = hyperparameters.pop("noise_std", 0.0)
 
         # The noise objects for TD3
-        if self._algorithm == "TD3":
+        if self._algorithm == "TD3" or self._algorithm == "DDPG":
             policy_kwargs = dict(net_arch=[400, 300])
             if noise_type == "normal":
                 action_noise = NormalActionNoise(mean=np.zeros(12), sigma=noise_std * np.ones(12))
@@ -102,12 +102,12 @@ class Trainer:
             callbacks = CallbackList([eval_callback, utils.TensorboardCallback()])
 
             self._model.learn(n_timesteps,
-                                log_interval=100,
+                                log_interval=1000,
                                 reset_num_timesteps=False,
                                 callback=callbacks)
         else:
             self._model.learn(n_timesteps,
-                                log_interval=100,
+                                log_interval=1000,
                                 reset_num_timesteps=False,
                                 callback=utils.TensorboardCallback())
 
@@ -173,7 +173,7 @@ class Trainer:
             model = ALGORITHMS[self._algorithm].load(model_path)
         else:
             raise NotFoundErr(
-                "The model could not be found in the given directory. Please ensure the file is name as 'model.zip'.")
+                "The model could not be found in the given directory. Please ensure the file is name as 'best_model.zip'.")
 
         # Load the replay buffer, if the file exists
         replay_buffer_path = os.path.join(load_path, f"{self._algorithm}_replay_buffer.pkl")

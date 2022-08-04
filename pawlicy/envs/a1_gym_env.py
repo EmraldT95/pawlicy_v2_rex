@@ -23,7 +23,7 @@ class A1GymEnv(gym.Env):
     def __init__(self,
                 log_path = None,
                 control_time_step=0.006,
-                action_repeat=6,
+                action_repeat=10,
                 control_latency=0,
                 enable_rendering=False,
                 randomise_terrain=False,
@@ -71,7 +71,7 @@ class A1GymEnv(gym.Env):
         self._pb_client.setPhysicsEngineParameter(enableConeFriction=0)
         self._pb_client.setAdditionalSearchPath(pbd.getDataPath())
 
-        self.seed()
+        self.seed(0)
         self.reset(True) # Hard reset initially to load the robot URDF file
 
 
@@ -190,18 +190,6 @@ class A1GymEnv(gym.Env):
         Renders the rgb view from the robots perspective.
         Currently tuned to get the view from the head of the robot
         """
-        # Base information
-        # proj_matrix = self._pb_client.computeProjectionMatrixFOV(fov=66, aspect=1, nearVal=0.01, farVal=100)
-        # base_pos = list(self._robot.GetBasePosition())
-        # base_ori = list(self._robot.GetTrueBaseOrientation())
-        # base_pos[2] = base_pos[2]+0.1
-
-        # # Rotate camera direction
-        # rot_mat = np.array(self._pb_client.getMatrixFromQuaternion(base_ori)).reshape(3, 3)
-        # camera_vec = np.matmul(rot_mat, [1, 0, 0]) # Target position is always the x-axis. This decides the diirection of the camera
-        # up_vec = np.matmul(rot_mat, np.array([0, 0, 1])) # Which direction is considered "up"
-        # view_matrix = self._pb_client.computeViewMatrix(base_pos, base_pos + camera_vec, up_vec)
-
         base_pos = self._robot.GetBasePosition()
         view_matrix = self._pb_client.computeViewMatrixFromYawPitchRoll(
             cameraTargetPosition=base_pos,
@@ -271,20 +259,26 @@ class A1GymEnv(gym.Env):
         """Defines the observation space of the gym environment"""
         joint_limits = self._robot.GetJointLimits()
         num_motors = self.robot.num_motors
-        upper_bound = np.zeros(len(self._get_observation()))
-        lower_bound = np.zeros(len(self._get_observation()))
+        observation_length = len(self._get_observation())
+        upper_bound = np.array([], dtype=np.float32)
+        lower_bound = np.array([], dtype=np.float32)
 
-        upper_bound[0:num_motors] = joint_limits["upper"]  # Joint angle.
-        lower_bound[0:num_motors] = joint_limits["lower"]
-        upper_bound[num_motors:2 * num_motors] = joint_limits["velocity"]  # Joint velocity.
-        lower_bound[num_motors:2 * num_motors] = -joint_limits["velocity"]
-        upper_bound[2 * num_motors:3 * num_motors] = joint_limits["torque"]  # Joint torque.
-        lower_bound[2 * num_motors:3 * num_motors] = -joint_limits["torque"]
-        upper_bound[3 * num_motors:] = 1.0  # Quaternion of base orientation.
-        lower_bound[3 * num_motors:] = -1.0
+        upper_bound = np.concatenate((upper_bound, joint_limits["upper"]))  # Joint angle.
+        lower_bound = np.concatenate((lower_bound, joint_limits["lower"]))
+        upper_bound = np.concatenate((upper_bound, joint_limits["velocity"]))  # Joint velocity.
+        lower_bound = np.concatenate((lower_bound, -joint_limits["velocity"]))
+        upper_bound = np.concatenate((upper_bound, joint_limits["torque"]))  # Joint torque.
+        lower_bound = np.concatenate((lower_bound, -joint_limits["torque"]))
+        upper_bound = np.concatenate((upper_bound, np.array([2.0 * np.pi] * 3)))  # Roll, Yaw and Pitch
+        lower_bound = np.concatenate((lower_bound, np.array([-2.0 * np.pi] * 3)))
+        upper_bound = np.concatenate((upper_bound, np.array([2000.0 * np.pi] * 3)))  # Angular velocities (From locomotion IMU sensor)
+        lower_bound = np.concatenate((lower_bound, np.array([-2000.0 * np.pi] * 3)))
         
-        observation_space = gym.spaces.Box(lower_bound, upper_bound, dtype=np.float32)
-        return observation_space
+        if upper_bound.shape[0] != observation_length or lower_bound.shape[0] != observation_length:
+            raise ValueError("The observation has a different space than the observation space.")
+        else:
+            observation_space = gym.spaces.Box(lower_bound, upper_bound, dtype=np.float32)
+            return observation_space
 
 
     def _act(self, action):
@@ -305,11 +299,7 @@ class A1GymEnv(gym.Env):
           The noisy observation with latency.
         """
 
-        observation = []
-        observation.extend(self._robot.GetMotorAngles().tolist()) # [0:12]
-        observation.extend(self._robot.GetMotorVelocities().tolist()) # [12:24]
-        observation.extend(self._robot.GetMotorTorques().tolist()) # [24:36]
-        observation.extend(list(self._robot.GetBaseOrientation())) # [36:40]
+        observation = self._robot.GetObservation()
         self._observation = np.asarray(observation, dtype=np.float32)
         return self._observation
 
@@ -323,12 +313,7 @@ class A1GymEnv(gym.Env):
           are motor velocities, observation[24:36] are motor torques.
           observation[36:40] is the orientation of the base, in quaternion form.
         """
-        observation = []
-        observation.extend(self._robot.GetTrueMotorAngles().tolist())
-        observation.extend(self._robot.GetTrueMotorVelocities().tolist())
-        observation.extend(self._robot.GetTrueMotorTorques().tolist())
-        observation.extend(list(self._robot.GetTrueBaseOrientation()))
-
+        observation = self._robot.GetTrueObservation()
         self._true_observation = np.asarray(observation, dtype=np.float32)
         return self._true_observation
 
