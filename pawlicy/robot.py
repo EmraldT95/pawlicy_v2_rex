@@ -84,10 +84,10 @@ class A1:
             terrain: The terrain on which the robot is standing.
         """
 
-        self._pb_client = pybullet_client
+        self._pybullet_client = pybullet_client
         self._action_repeat = action_repeat
         self._init_base_position = TerrainConstants.ROBOT_INIT_POSITION[terrain]
-        self._init_base_orientation = self._pb_client.getQuaternionFromEuler([0, 0, 0])
+        self._init_base_orientation = self._pybullet_client.getQuaternionFromEuler([0, 0, 0])
         self._control_latency = control_latency
         self._observation_noise_stdev = observation_noise_stdev
         self._terrain = terrain
@@ -125,21 +125,23 @@ class A1:
 
         if hard_reload:
             # Build the robot
-            self._robot_id = self._pb_client.loadURDF("a1/a1.urdf",
+            self._robot_id = self._pybullet_client.loadURDF("a1/a1.urdf",
                                                         self._init_base_position,
                                                         self._init_base_orientation,
                                                         useFixedBase=False,
-                                                        flags=self._pb_client.URDF_USE_SELF_COLLISION)
-            self._num_joints = self._pb_client.getNumJoints(self._robot_id)
+                                                        flags=self._pybullet_client.URDF_USE_SELF_COLLISION)
+            self._num_joints = self._pybullet_client.getNumJoints(self._robot_id)
             # self._RemoveDefaultJointDamping() # Remove joint damping
             self._GetJointsInfo() # Get some information about the joints of the robot
         else:
             # Reset the position of the Robot
-            self._pb_client.resetBasePositionAndOrientation(self._robot_id, self._init_base_position, self._init_base_orientation)
-            self._pb_client.resetBaseVelocity(self._robot_id, [0, 0, 0], [0, 0, 0])
+            self._pybullet_client.resetBasePositionAndOrientation(self._robot_id, self._init_base_position, self._init_base_orientation)
+            self._pybullet_client.resetBaseVelocity(self._robot_id, [0, 0, 0], [0, 0, 0])
 
         # Reset the pose of the Robot
         self.ResetPose()
+        self._current_velocity = np.zeros_like(self.GetBaseVelocity())
+        self._last_velocity = np.zeros_like(self._current_velocity)
         self._step_counter = 0
         self._last_action = None
         self._observation_history.clear()
@@ -150,7 +152,7 @@ class A1:
             self.ReceiveObservation()
             for _ in range(100):
                 self.ApplyAction(pose)
-                self._pb_client.stepSimulation()
+                self._pybullet_client.stepSimulation()
                 self.ReceiveObservation()
                     
         self._ResetActionFilter()
@@ -163,7 +165,7 @@ class A1:
 
         # Set the angle(in radians) for each joint
         for name, i in zip(JOINT_NAMES, range(len(JOINT_NAMES))):
-            self._pb_client.resetJointState(self._robot_id,
+            self._pybullet_client.resetJointState(self._robot_id,
                                                   self._joint_name_to_id[name],
                                                   INIT_MOTOR_ANGLES[i],
                                                   targetVelocity=0)
@@ -230,7 +232,7 @@ class A1:
         action = self._FilterAction(action)
         for i in range(self._action_repeat):
             self.ApplyAction(action, i)
-            self._pb_client.stepSimulation()
+            self._pybullet_client.stepSimulation()
             self.ReceiveObservation()
             self._step_counter += 1
 
@@ -250,6 +252,9 @@ class A1:
         observation.extend(self.GetMotorTorques()) # [24:36]
         observation.extend(self.GetBaseRollPitchYaw()) # [36:39]
         observation.extend(self.GetBaseRollPitchYawRate()) # [39:42]
+        self._last_velocity = self._current_velocity
+        self._current_velocity = np.array(self.GetBaseVelocity())
+        observation.extend(self._current_velocity - self._last_velocity) # [42:45]
         return observation
 
     def GetTrueObservation(self):
@@ -259,6 +264,9 @@ class A1:
         observation.extend(self.GetTrueMotorTorques()) # [24:36]
         observation.extend(self.GetTrueBaseOrientation()) # [36:40]
         observation.extend(self.GetTrueBaseRollPitchYawRate()) # [40:43]
+        self._last_velocity = self._current_velocity
+        self._current_velocity = np.array(self.GetBaseVelocity())
+        observation.extend(self._current_velocity - self._last_velocity) # [43:46]
         return observation
 
     def GetBasePosition(self):
@@ -267,16 +275,16 @@ class A1:
         Returns:
           The position of robot's base.
         """
-        position, _ = (self._pb_client.getBasePositionAndOrientation(self._robot_id))
+        position, _ = (self._pybullet_client.getBasePositionAndOrientation(self._robot_id))
         return position
 
     def GetBaseVelocity(self):
-        """Get the linear velocity of minitaur's base.
+        """Get the linear velocity of robot's base.
 
         Returns:
-        The velocity of minitaur's base.
+        The velocity of robot's base.
         """
-        velocity, _ = self._pb_client.getBaseVelocity(self._robot_id)
+        velocity, _ = self._pybullet_client.getBaseVelocity(self._robot_id)
         return velocity
 
     def GetTrueBaseRollPitchYaw(self):
@@ -286,7 +294,7 @@ class A1:
           A tuple (roll, pitch, yaw) of the base in world frame.
         """
         orientation = self.GetTrueBaseOrientation()
-        roll_pitch_yaw = self._pb_client.getEulerFromQuaternion(orientation)
+        roll_pitch_yaw = self._pybullet_client.getEulerFromQuaternion(orientation)
         return np.asarray(roll_pitch_yaw)
 
     def GetBaseRollPitchYaw(self):
@@ -298,7 +306,7 @@ class A1:
           and latency.
         """
         delayed_orientation = np.array(self._control_observation[3 * self.num_motors:3 * self.num_motors + 4])
-        delayed_roll_pitch_yaw = self._pb_client.getEulerFromQuaternion(delayed_orientation)
+        delayed_roll_pitch_yaw = self._pybullet_client.getEulerFromQuaternion(delayed_orientation)
         roll_pitch_yaw = self._AddSensorNoise(np.array(delayed_roll_pitch_yaw), self._observation_noise_stdev[3])
         return roll_pitch_yaw
 
@@ -308,7 +316,7 @@ class A1:
         Returns:
           Motor angles, mapped to [-pi, pi].
         """
-        motor_angles = [self._pb_client.getJointState(self._robot_id, motor_id)[0] for motor_id in self._motor_link_ids]
+        motor_angles = [self._pybullet_client.getJointState(self._robot_id, motor_id)[0] for motor_id in self._motor_link_ids]
         motor_angles = np.multiply(motor_angles, self._motor_direction)
         return motor_angles
 
@@ -331,7 +339,7 @@ class A1:
         Returns:
           Velocities of all eight motors.
         """
-        motor_velocities = [self._pb_client.getJointState(self._robot_id, motor_id)[1] for motor_id in self._motor_link_ids]
+        motor_velocities = [self._pybullet_client.getJointState(self._robot_id, motor_id)[1] for motor_id in self._motor_link_ids]
         motor_velocities = np.multiply(motor_velocities, self._motor_direction)
         return motor_velocities
 
@@ -354,7 +362,7 @@ class A1:
         # if self._accurate_motor_model_enabled or self._pd_control_enabled:
         #     return self._observed_motor_torques
         # else:
-        motor_torques = [self._pb_client.getJointState(self._robot_id, motor_id)[3] for motor_id in self._motor_link_ids]
+        motor_torques = [self._pybullet_client.getJointState(self._robot_id, motor_id)[3] for motor_id in self._motor_link_ids]
         motor_torques = np.multiply(motor_torques, self._motor_direction)
         return motor_torques
 
@@ -374,7 +382,7 @@ class A1:
         Returns:
           The orientation of robot's base.
         """
-        _, orientation = (self._pb_client.getBasePositionAndOrientation(self._robot_id))
+        _, orientation = (self._pybullet_client.getBasePositionAndOrientation(self._robot_id))
         return orientation
 
     def GetBaseOrientation(self):
@@ -384,7 +392,7 @@ class A1:
         Returns:
           The orientation of robot's base polluted by noise and latency.
         """
-        return self._pb_client.getQuaternionFromEuler(self.GetBaseRollPitchYaw())
+        return self._pybullet_client.getQuaternionFromEuler(self.GetBaseRollPitchYaw())
 
     def GetTrueBaseRollPitchYawRate(self):
         """Get the rate of orientation change of the robot's base in euler angle.
@@ -392,7 +400,7 @@ class A1:
         Returns:
           rate of (roll, pitch, yaw) change of the robot's base.
         """
-        vel = self._pb_client.getBaseVelocity(self._robot_id)
+        vel = self._pybullet_client.getBaseVelocity(self._robot_id)
         return np.asarray([vel[1][0], vel[1][1], vel[1][2]])
 
     def GetBaseRollPitchYawRate(self):
@@ -408,13 +416,10 @@ class A1:
             self._observation_noise_stdev[4])
 
     def _SetDesiredMotorAngleById(self, motor_id, desired_angle, max_force):
-        self._pb_client.setJointMotorControl2(bodyIndex=self._robot_id,
+        self._pybullet_client.setJointMotorControl2(bodyIndex=self._robot_id,
                                                     jointIndex=motor_id,
-                                                    controlMode=self._pb_client.POSITION_CONTROL,
-                                                    targetPosition=desired_angle,
-                                                    positionGain=self._kp,
-                                                    velocityGain=self._kd,
-                                                    force=max_force)
+                                                    controlMode=self._pybullet_client.POSITION_CONTROL,
+                                                    targetPosition=desired_angle)
 
     def GetJointLimits(self):
         """Gets the joint limits (angle, torque and velocity) of the robot"""
@@ -465,7 +470,7 @@ class A1:
         """
 
         for i in range(self._num_joints):
-            joint_info = self._pb_client.getJointInfo(self._robot_id, i)
+            joint_info = self._pybullet_client.getJointInfo(self._robot_id, i)
             joint_id = joint_info[0]
             joint_name = joint_info[1].decode("UTF-8")
             self._joint_name_to_id[joint_name] = joint_id
@@ -510,7 +515,7 @@ class A1:
 
         Args:
         motor_commands: np.array. Can be motor angles, torques, hybrid commands,
-            or motor pwms (for Minitaur only).
+            or motor pwms (for robot only).
 
         Returns:
         Clipped motor commands.
@@ -527,8 +532,8 @@ class A1:
     def _RemoveDefaultJointDamping(self):
         """Removes the damping on allthe joints"""
         for i in range(self._num_joints):
-            joint_id = self._pb_client.getJointInfo(self._robot_id, i)[0]
-            self._pb_client.changeDynamics(joint_id, -1, linearDamping=0, angularDamping=0)
+            joint_id = self._pybullet_client.getJointInfo(self._robot_id, i)[0]
+            self._pybullet_client.changeDynamics(joint_id, -1, linearDamping=0, angularDamping=0)
 
     def SetTimeSteps(self, action_repeat, simulation_step):
         """Set the time steps of the control and simulation.

@@ -20,7 +20,10 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv, VecMonitor, is
 
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
-def lr_schedule(initial_value: Union[float, str], lr_type: str, total_timesteps: Union[int, None] = None) -> Callable[[float], float]:
+def lr_schedule(initial_value: Union[float, str],
+                lr_type: str,
+                total_timesteps: Union[int, None] = None,
+                final_value: Union[float, str] = 1e5,) -> Callable[[float], float]:
     """
     Learning rate scheduler that is configured.
     
@@ -32,9 +35,14 @@ def lr_schedule(initial_value: Union[float, str], lr_type: str, total_timesteps:
         (function): the scheduler function
     """
     lr_type = lr_type
-    timesteps = total_timesteps
+    iters = np.arange(total_timesteps)
     if isinstance(initial_value, str):
         initial_value = float(initial_value)
+    
+    if lr_type == "cosine":
+        if isinstance(final_value, str):
+            final_value = float(final_value)
+        schedule = final_value + 0.5 * (initial_value - final_value) * (1 + np.cos(np.pi * iters / len(iters)))
 
     def func(progress_remaining: float) -> float:
         """
@@ -46,9 +54,8 @@ def lr_schedule(initial_value: Union[float, str], lr_type: str, total_timesteps:
         """
         # Cosine Annealing
         if lr_type == "cosine":
-            assert timesteps is not None, "Total timesteps required for 'cosine' learning rate scheduler."
-            T_max = 1.0 - (total_timesteps * 0.5)/total_timesteps # The maximum progress - currently 10% of the total
-            return np.max(0.5 * (1 + np.cos(progress_remaining / T_max * np.pi)) * initial_value, int(1e-5))
+            idx = int((1 - progress_remaining) *  (total_timesteps - 1))
+            return schedule[idx]
         # Linear
         else:
             return np.max(progress_remaining * initial_value, int(1e-5))

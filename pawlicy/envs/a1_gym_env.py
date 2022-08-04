@@ -65,11 +65,11 @@ class A1GymEnv(gym.Env):
 
         # Configure PyBullet
         if self._is_render:
-            self._pb_client = BulletClient(connection_mode=p.GUI)
+            self._pybullet_client = BulletClient(connection_mode=p.GUI)
         else:
-            self._pb_client = BulletClient()
-        self._pb_client.setPhysicsEngineParameter(enableConeFriction=0)
-        self._pb_client.setAdditionalSearchPath(pbd.getDataPath())
+            self._pybullet_client = BulletClient()
+        self._pybullet_client.setPhysicsEngineParameter(enableConeFriction=0)
+        self._pybullet_client.setAdditionalSearchPath(pbd.getDataPath())
 
         self.seed(0)
         self.reset(True) # Hard reset initially to load the robot URDF file
@@ -89,14 +89,14 @@ class A1GymEnv(gym.Env):
 		Returns:
 			A numpy array contains the initial observation after reset.
 		"""
-        self._pb_client.configureDebugVisualizer(self._pb_client.COV_ENABLE_RENDERING, 0)
+        self._pybullet_client.configureDebugVisualizer(self._pybullet_client.COV_ENABLE_RENDERING, 0)
 
         # Clear the simulation world and reset the robot interface.
         if hard_reset:
-            self._pb_client.resetSimulation()
-            self._pb_client.setPhysicsEngineParameter(numSolverIterations=int(self._num_bullet_solver_iterations))
-            self._pb_client.setTimeStep(self._time_step)
-            self._pb_client.setGravity(0, 0, -9.8)
+            self._pybullet_client.resetSimulation()
+            self._pybullet_client.setPhysicsEngineParameter(numSolverIterations=int(self._num_bullet_solver_iterations))
+            self._pybullet_client.setTimeStep(self._time_step)
+            self._pybullet_client.setGravity(0, 0, -9.8)
 
             # Generate the terrain
             terrain_id, terrain_type = self._generate_terrain(self._randomise_terrain)
@@ -107,7 +107,7 @@ class A1GymEnv(gym.Env):
 
             # Build the robot
             self._robot = A1(
-                    pybullet_client=self._pb_client,
+                    pybullet_client=self._pybullet_client,
                     action_repeat=self._action_repeat,
                     time_step=self._time_step,
                     # control_latency=self._control_latency,
@@ -124,8 +124,8 @@ class A1GymEnv(gym.Env):
         self._env_time_step = self._time_step * self._action_repeat
         self._last_frame_time = 0.0 # The wall-clock time at which the last frame is rendered.
         if self._is_render:
-            self._pb_client.configureDebugVisualizer(self._pb_client.COV_ENABLE_RENDERING, 1)
-        self._pb_client.resetDebugVisualizerCamera(self._cam_dist, self._cam_yaw, self._cam_pitch, [0, 0, 0])
+            self._pybullet_client.configureDebugVisualizer(self._pybullet_client.COV_ENABLE_RENDERING, 1)
+        self._pybullet_client.resetDebugVisualizerCamera(self._cam_dist, self._cam_yaw, self._cam_pitch, [0, 0, 0])
         self._last_action = np.zeros(self.action_space.shape)
         self._last_base_position = self._robot.InitBasePosition
         self._last_base_orientation = self._robot.InitBaseOrientation
@@ -173,9 +173,9 @@ class A1GymEnv(gym.Env):
             base_pos = self._robot.GetBasePosition()
 
             # Also keep the previous orientation of the camera set by the user.
-            [yaw, pitch, dist] = self._pb_client.getDebugVisualizerCamera()[8:11]
-            self._pb_client.resetDebugVisualizerCamera(dist, yaw, pitch, base_pos)
-            # self._pb_client.configureDebugVisualizer(self._pb_client.COV_ENABLE_SINGLE_STEP_RENDERING, 1)
+            [yaw, pitch, dist] = self._pybullet_client.getDebugVisualizerCamera()[8:11]
+            self._pybullet_client.resetDebugVisualizerCamera(dist, yaw, pitch, base_pos)
+            # self._pybullet_client.configureDebugVisualizer(self._pybullet_client.COV_ENABLE_SINGLE_STEP_RENDERING, 1)
 
         self._act(action)
         observation = self._get_observation()
@@ -191,23 +191,23 @@ class A1GymEnv(gym.Env):
         Currently tuned to get the view from the head of the robot
         """
         base_pos = self._robot.GetBasePosition()
-        view_matrix = self._pb_client.computeViewMatrixFromYawPitchRoll(
+        view_matrix = self._pybullet_client.computeViewMatrixFromYawPitchRoll(
             cameraTargetPosition=base_pos,
             distance=self._cam_dist,
             yaw=self._cam_yaw,
             pitch=self._cam_pitch,
             roll=0,
             upAxisIndex=2)
-        proj_matrix = self._pb_client.computeProjectionMatrixFOV(
+        proj_matrix = self._pybullet_client.computeProjectionMatrixFOV(
             fov=60,
             aspect=float(RENDER_WIDTH) / RENDER_HEIGHT,
             nearVal=0.1,
             farVal=100.0)
 
-        (_, _, px, _, _) = self._pb_client.getCameraImage(
+        (_, _, px, _, _) = self._pybullet_client.getCameraImage(
             width=RENDER_WIDTH,
             height=RENDER_HEIGHT,
-            renderer=self._pb_client.ER_BULLET_HARDWARE_OPENGL,
+            renderer=self._pybullet_client.ER_BULLET_HARDWARE_OPENGL,
             viewMatrix=view_matrix,
             projectionMatrix=proj_matrix)
         rgb_array = np.array(px)
@@ -217,7 +217,7 @@ class A1GymEnv(gym.Env):
 
     def close(self):
         """Terminates the simulation"""
-        self._pb_client.disconnect()
+        self._pybullet_client.disconnect()
         self._robot.Terminate()
 
     def _termination(self):
@@ -227,9 +227,9 @@ class A1GymEnv(gym.Env):
         """Generates terrain randomly (if needed)"""
         terrain_id = -1
         if randomize:
-            terrain_id, terrain_type = TerrainRandomizer(self._pb_client).randomize()
+            terrain_id, terrain_type = TerrainRandomizer(self._pybullet_client).randomize()
         else:
-            terrain_id = self._pb_client.loadURDF("plane.urdf")
+            terrain_id = self._pybullet_client.loadURDF("plane.urdf")
             terrain_type = "plane"
 
         return terrain_id, terrain_type
@@ -239,19 +239,20 @@ class A1GymEnv(gym.Env):
         """Defines the action space of the gym environment"""
         # All limits defined according to urdf file
         joint_limits = self._robot.GetJointLimits()
-        # Controls the torque applied at each motor
-        if self._motor_control_mode == "Torque":
-            high = joint_limits["torque"]
-            action_space = gym.spaces.Box(-high, high, dtype=np.float32)
-        # Controls the angles (in radians) of the joints
-        elif self._motor_control_mode == "Position":
-            action_space = gym.spaces.Box(joint_limits["lower"], joint_limits["upper"], dtype=np.float32)
-        # Controls the velocity at which motors rotate
-        elif self._motor_control_mode == "Velocity":
-            high = joint_limits["velocity"]
-            action_space = gym.spaces.Box(-high, high, dtype=np.float32)
-        else:
-            raise ValueError
+        action_space = gym.spaces.Box(joint_limits["lower"], joint_limits["upper"], dtype=np.float32)
+        # # Controls the torque applied at each motor
+        # if self._motor_control_mode == "Torque":
+        #     high = joint_limits["torque"]
+        #     action_space = gym.spaces.Box(-high, high, dtype=np.float32)
+        # # Controls the angles (in radians) of the joints
+        # elif self._motor_control_mode == "Position":
+        #     action_space = gym.spaces.Box(joint_limits["lower"], joint_limits["upper"], dtype=np.float32)
+        # # Controls the velocity at which motors rotate
+        # elif self._motor_control_mode == "Velocity":
+        #     high = joint_limits["velocity"]
+        #     action_space = gym.spaces.Box(-high, high, dtype=np.float32)
+        # else:
+        #     raise ValueError
         return action_space
 
 
@@ -273,6 +274,8 @@ class A1GymEnv(gym.Env):
         lower_bound = np.concatenate((lower_bound, np.array([-2.0 * np.pi] * 3)))
         upper_bound = np.concatenate((upper_bound, np.array([2000.0 * np.pi] * 3)))  # Angular velocities (From locomotion IMU sensor)
         lower_bound = np.concatenate((lower_bound, np.array([-2000.0 * np.pi] * 3)))
+        upper_bound = np.concatenate((upper_bound, np.array([200.0] * 3)))  # Linear velocities (From locomotion IMU sensor)
+        lower_bound = np.concatenate((lower_bound, np.array([-200.0] * 3)))
         
         if upper_bound.shape[0] != observation_length or lower_bound.shape[0] != observation_length:
             raise ValueError("The observation has a different space than the observation space.")
@@ -328,7 +331,7 @@ class A1GymEnv(gym.Env):
 
     @property
     def pybullet_client(self):
-        return self._pb_client
+        return self._pybullet_client
 
     @property
     def robot(self):
