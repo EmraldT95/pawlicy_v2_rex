@@ -30,12 +30,13 @@ class Trainer:
         algorithm: The algorithm to use.
         max_episode_steps: The no. of steps per episode
     """
-    def __init__(self, env, eval_env=None, algorithm="SAC", max_episode_steps=100, save_path=None):
+    def __init__(self, env, args, eval_env=None, save_path=None):
         self._eval_env = eval_env
-        self._algorithm = algorithm
-        self._max_episode_steps = max_episode_steps
+        self._algorithm = args.algorithm
+        self._max_episode_steps = args.max_episode_steps
         self._env = self.setup_env(env, self._max_episode_steps)
         self._save_path = save_path
+        self._args = args
         # Setup the evaluation environment as well, if available
         if eval_env is not None:
             self._eval_env = self.setup_env(eval_env, self._max_episode_steps // 2)
@@ -196,17 +197,26 @@ class Trainer:
         else:
             raise ValueError("A path must be provided to load the model.")
 
-        obs = self._env.reset()
-        rewards = []
-        ep_reward = 0
-        for _ in range(5000):
-            action, _states = self._model.predict(obs, deterministic=True)
-            obs, reward, done, info = self._env.step(action)
-            ep_reward += reward
-            if done:
-                rewards.append(ep_reward)
-                obs = self._env.reset()
-        print("Mean reward: ", np.mean(np.array(rewards)))
+        returns = []
+        eps_lengths = []
+
+        for i in range(self._args.total_num_eps):
+            done = False
+            step_counter = 0
+            ep_return = 0 
+            obs = self._env.reset()
+            while not done:
+                action, _states = self._model.predict(obs, deterministic=True)
+                obs, reward, done, info = self._env.step(action)
+                ep_return += reward
+                step_counter += 1
+            
+            returns.append(ep_return)
+            eps_lengths.append(step_counter)
+        
+        print()
+        print(f"Mean return is {np.mean(returns):.2f} +/- {np.std(returns):.2f}") 
+        print(f"Mean episode length is  {np.mean(eps_lengths):.2f} +/- {np.std(eps_lengths):.2f}")
 
     def setup_env(self, env, max_episode_steps):
         """Modifies the environment to suit to the needs of stable_baselines3.

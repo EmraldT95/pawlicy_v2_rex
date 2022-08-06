@@ -140,13 +140,14 @@ class A1:
 
         # Reset the pose of the Robot
         self.ResetPose()
-        self._current_velocity = np.zeros_like(self.GetBaseVelocity())
-        self._last_velocity = np.zeros_like(self._current_velocity)
+        self._last_yaw = 0
+        self._last_base_position = np.zeros(3)
+        self._current_yaw = 0
+        self._current_base_position = np.zeros(3)
         self._step_counter = 0
         self._last_action = None
         self._observation_history.clear()
-        # Perform reset motion within reset_duration if in position control mode.
-        # Nothing is performed if in torque control mode for now.
+        # Perform reset motion within reset_duration
         if reset_time > 0.0:
             pose = INIT_MOTOR_ANGLES
             self.ReceiveObservation()
@@ -207,20 +208,20 @@ class A1:
             uses the default kd of the robot for all the motors.
         """
 
-        if len(self._joint_max_velocity) > 0:
-            current_motor_angle = self.GetTrueMotorAngles()
-            max_velocities = np.asarray(self._joint_max_velocity)
-            motor_commands_max = (current_motor_angle + self.time_step * max_velocities)
-            motor_commands_min = (current_motor_angle - self.time_step * max_velocities)
-            motor_commands = np.clip(motor_commands, motor_commands_min, motor_commands_max)
+        # if len(self._joint_max_velocity) > 0:
+        #     current_motor_angle = self.GetTrueMotorAngles()
+        #     max_velocities = np.asarray(self._joint_max_velocity)
+        #     motor_commands_max = (current_motor_angle + self.time_step * max_velocities)
+        #     motor_commands_min = (current_motor_angle - self.time_step * max_velocities)
+        #     motor_commands = np.clip(motor_commands, motor_commands_min, motor_commands_max)
         
         # interpolates between the current and previous actions
         if self._last_action is not None:
             lerp = float(idx + 1) / self._action_repeat
             motor_commands = self._last_action + lerp * (motor_commands - self._last_action)
 
-        # # Clipping motor commands to be clipped off based on the current motor angles
-        # motor_commands = self._ClipMotorCommands(motor_commands)
+        # Clipping motor commands to be clipped off based on the current motor angles
+        motor_commands = self._ClipMotorCommands(motor_commands)
 
         motor_commands_with_direction = np.multiply(motor_commands, self._motor_direction)
         self._last_action = motor_commands_with_direction # might come handy for action interpolation (smoothening the transitions)
@@ -235,6 +236,11 @@ class A1:
             self._pybullet_client.stepSimulation()
             self.ReceiveObservation()
             self._step_counter += 1
+        # This is needed for the base displacement
+        self._last_base_position = self._current_base_position
+        self._current_base_position = np.array(self.GetBasePosition())
+        self._last_yaw = self._current_yaw
+        self._current_yaw = self.GetBaseRollPitchYaw()[2]
 
     def ReceiveObservation(self):
         """Receive the observation from sensors.
@@ -252,9 +258,9 @@ class A1:
         observation.extend(self.GetMotorTorques()) # [24:36]
         observation.extend(self.GetBaseRollPitchYaw()) # [36:39]
         observation.extend(self.GetBaseRollPitchYawRate()) # [39:42]
-        self._last_velocity = self._current_velocity
-        self._current_velocity = np.array(self.GetBaseVelocity())
-        observation.extend(self._current_velocity - self._last_velocity) # [42:45]
+        # Base displacement
+        dx, dy, dz = self._current_base_position - self._last_base_position
+        observation.extend(np.array([dx, dy, dz])) # [42:45]
         return observation
 
     def GetTrueObservation(self):
@@ -262,11 +268,13 @@ class A1:
         observation.extend(self.GetTrueMotorAngles()) # [0:12]
         observation.extend(self.GetTrueMotorVelocities()) # [12:24]
         observation.extend(self.GetTrueMotorTorques()) # [24:36]
-        observation.extend(self.GetTrueBaseOrientation()) # [36:40]
-        observation.extend(self.GetTrueBaseRollPitchYawRate()) # [40:43]
-        self._last_velocity = self._current_velocity
-        self._current_velocity = np.array(self.GetBaseVelocity())
-        observation.extend(self._current_velocity - self._last_velocity) # [43:46]
+        observation.extend(self.GetTrueBaseRollPitchYaw()) # [36:39]
+        observation.extend(self.GetTrueBaseRollPitchYawRate()) # [39:42]
+        # Base displacement
+        self._last_yaw = self._current_yaw
+        self._current_yaw = self.GetTrueBaseRollPitchYaw()[2]
+        dx, dy, dz = self._current_base_position - self._last_base_position
+        observation.extend(np.array([dx, dy, dz])) # [42:45]
         return observation
 
     def GetBasePosition(self):

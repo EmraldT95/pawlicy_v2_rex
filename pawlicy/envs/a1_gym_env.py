@@ -71,7 +71,7 @@ class A1GymEnv(gym.Env):
         self._pybullet_client.setPhysicsEngineParameter(enableConeFriction=0)
         self._pybullet_client.setAdditionalSearchPath(pbd.getDataPath())
 
-        self.seed(0)
+        self.seed()
         self.reset(True) # Hard reset initially to load the robot URDF file
 
 
@@ -274,8 +274,8 @@ class A1GymEnv(gym.Env):
         lower_bound = np.concatenate((lower_bound, np.array([-2.0 * np.pi] * 3)))
         upper_bound = np.concatenate((upper_bound, np.array([2000.0 * np.pi] * 3)))  # Angular velocities (From locomotion IMU sensor)
         lower_bound = np.concatenate((lower_bound, np.array([-2000.0 * np.pi] * 3)))
-        upper_bound = np.concatenate((upper_bound, np.array([200.0] * 3)))  # Linear velocities (From locomotion IMU sensor)
-        lower_bound = np.concatenate((lower_bound, np.array([-200.0] * 3)))
+        upper_bound = np.concatenate((upper_bound, np.array([0.1] * 3)))  # Base Displacement
+        lower_bound = np.concatenate((lower_bound, np.array([-0.1] * 3)))
         
         if upper_bound.shape[0] != observation_length or lower_bound.shape[0] != observation_length:
             raise ValueError("The observation has a different space than the observation space.")

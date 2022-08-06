@@ -4,7 +4,7 @@ import argparse
 
 from pawlicy.envs import A1GymEnv
 from pawlicy.learning import Trainer
-from pawlicy.tasks import WalkAlongX
+from pawlicy.tasks import WalkAlongX, WalkAlongX_v11
 
 currentdir = os.path.dirname(os.path.abspath(
     inspect.getfile(inspect.currentframe())))
@@ -62,8 +62,7 @@ def main():
                             task=task)
 
         # Get the trainer
-        local_trainer = Trainer(
-            env, eval_env, args.algorithm, args.max_episode_steps, path)
+        local_trainer = Trainer(env, args, eval_env, path)
 
         # The hyperparameters to override/add for the specific algorithm
         # (Check 'learning/hyperparams.yml' for default values)
@@ -84,8 +83,7 @@ def main():
                             motor_control_mode=args.motor_control_mode,
                             enable_rendering=True,
                             task=task)
-        Trainer(test_env, algorithm=args.algorithm,
-                max_episode_steps=args.max_episode_steps, save_path=path).test()
+        Trainer(test_env, args, save_path=path).test()
 
 
 if __name__ == "__main__":
